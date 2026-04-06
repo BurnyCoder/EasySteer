@@ -84,7 +84,8 @@ def get_or_create_llm(model_path, gpu_devices="0"):
         gpu_devices=gpu_devices,
         enable_steer_vector=True,
         enforce_eager=True,
-        enable_chunked_prefill=False
+        enable_chunked_prefill=False,
+        enable_prefix_caching=False,
     )
 
 def get_model_prompt(model_path, message, history=None):
@@ -136,10 +137,14 @@ def chat():
         # Get config for the preset
         config = preset_configs[preset]
         model_path = config["model_path"]
-        print(model_path)
         # Get or create LLM
         try:
             llm = get_or_create_llm(model_path, gpu_devices)
+        except ValueError as e:
+            return jsonify({
+                'success': False,
+                'error': str(e)
+            }), 400
         except Exception as e:
             logger.error(f"Failed to load model: {str(e)}")
             return jsonify({

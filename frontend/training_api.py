@@ -5,6 +5,8 @@ import threading
 import logging
 import json
 
+from core.gpu_utils import normalize_requested_gpu_devices
+
 # Create a blueprint for training-related endpoints
 training_bp = Blueprint('training', __name__)
 
@@ -126,8 +128,10 @@ def train():
         except Exception as e:
             return jsonify({'error': f'Incorrect training data format: {str(e)}'}), 400
         
-        # Set environment variables
-        os.environ["CUDA_VISIBLE_DEVICES"] = data.get('gpu_devices', '0')
+        normalized_gpu_devices = normalize_requested_gpu_devices(
+            data.get('gpu_devices', '0')
+        )
+        data['gpu_devices'] = normalized_gpu_devices
         
         # Start training (using asynchronous method)
         def train_model():
@@ -136,13 +140,20 @@ def train():
                 import torch
                 import transformers
                 import time
+
+                os.environ["CUDA_VISIBLE_DEVICES"] = normalized_gpu_devices
+                if not torch.cuda.is_available() or torch.cuda.device_count() == 0:
+                    raise RuntimeError(
+                        "No CUDA GPUs are visible after applying "
+                        f"CUDA_VISIBLE_DEVICES={normalized_gpu_devices}."
+                    )
                 
                 # Initialize training status
                 training_status.update({
                     'is_training': True,
                     'current_epoch': 0,
                     'current_step': 0,
-                    'status_message': 'Initializing training...',
+                    'status_message': f'Initializing training on GPU(s): {normalized_gpu_devices}...',
                     'error_message': '',
                     'logs': []
                 })
@@ -282,12 +293,15 @@ def train():
             'success': True,
             'message': 'Training has started',
             'output_dir': data['output_dir'],
+            'gpu_devices': normalized_gpu_devices,
             'training_examples_count': len(training_examples),
             'reft_config': data.get('reft_config', {}),
             'training_args': data.get('training_args', {}),
             'note': 'Training is running in the background. Check server logs for progress.'
         }), 200
         
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
     except Exception as e:
         logger.error(f"Failed to start training: {str(e)}")
         lang = request.headers.get('Accept-Language', 'zh').split(',')[0].split('-')[0]

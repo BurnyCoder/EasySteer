@@ -2,10 +2,18 @@ import torch
 import transformers
 # from pyreft import *
 import easysteer.reft.pyreft as pyreft
-import os
 
-# Set GPU device
-os.environ["CUDA_VISIBLE_DEVICES"] = "2"
+
+def require_visible_cuda_device() -> None:
+    if not torch.cuda.is_available() or torch.cuda.device_count() == 0:
+        raise SystemExit(
+            "No CUDA GPUs are visible. Set CUDA_VISIBLE_DEVICES to a valid GPU "
+            "index before running this demo, for example: "
+            "CUDA_VISIBLE_DEVICES=0 uv run python easysteer/reft/basic_demo.py"
+        )
+
+
+require_visible_cuda_device()
 device = "cuda"
 
 # Step 1: loading the raw LM

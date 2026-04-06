@@ -9,6 +9,7 @@ from datetime import datetime
 
 # Import core modules for unified management
 from core import llm_manager, resource_manager
+from core.gpu_utils import normalize_requested_gpu_devices
 
 # Temporarily add project root to Python path for local modules only
 def import_local_modules():
@@ -79,6 +80,9 @@ def extract_vector():
     """API endpoint to extract control vectors"""
     try:
         config = request.json
+        config['gpu_devices'] = normalize_requested_gpu_devices(
+            config.get('gpu_devices', '0')
+        )
         
         # Reset status
         with status_lock:
@@ -101,6 +105,11 @@ def extract_vector():
             "message": "Extraction task has been started"
         })
         
+    except ValueError as e:
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 400
     except Exception as e:
         update_extraction_status(f"Failed to start extraction: {str(e)}", is_error=True)
         return jsonify({
@@ -111,17 +120,19 @@ def extract_vector():
 def run_extraction(config):
     """Run the extraction process"""
     try:
-        # Set GPU
-        if config.get('gpu_devices'):
-            os.environ["CUDA_VISIBLE_DEVICES"] = config['gpu_devices']
+        gpu_devices = config.get('gpu_devices', '0')
+        os.environ["CUDA_VISIBLE_DEVICES"] = gpu_devices
+        update_extraction_status(f"Using GPU devices: {gpu_devices}")
         
         device = "cuda" if torch.cuda.is_available() else "cpu"
-        update_extraction_status(f"Using device: {device}")
+        if device != "cuda":
+            raise RuntimeError(
+                f"No CUDA GPUs are visible after applying CUDA_VISIBLE_DEVICES={gpu_devices}."
+            )
         
         # Load vllm model using unified LLM manager
         update_extraction_status("Loading VLLM model...")
         model_path = config['model_path']
-        gpu_devices = config.get('gpu_devices', '0')
         
         # Use LLM manager with extraction-specific configuration
         # Note: enable_steer_vector defaults to False (extraction doesn't need steering)

@@ -153,6 +153,7 @@ def load_model():
             enable_steer_vector=True,
             enforce_eager=True,
             enable_chunked_prefill=False,
+            enable_prefix_caching=False,
             gpu_memory_utilization=0.8,
             max_model_len=2048,
             tensor_parallel_size=1

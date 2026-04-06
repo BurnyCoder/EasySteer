@@ -73,7 +73,8 @@ def get_or_create_llm(model_path, gpu_devices):
         gpu_devices=gpu_devices,
         enable_steer_vector=True,
         enforce_eager=True,
-        enable_chunked_prefill=False
+        enable_chunked_prefill=False,
+        enable_prefix_caching=False,
     )
 
 def get_model_prompt(model_path, instruction):
@@ -103,6 +104,8 @@ def generate():
                 data['model_path'],
                 data.get('gpu_devices', '0')
             )
+        except ValueError as e:
+            return jsonify({'error': str(e)}), 400
         except Exception as e:
             return jsonify({'error': get_message('model_loading_error', lang, error=str(e))}), 500
         
@@ -209,6 +212,8 @@ def generate_multi():
                 data['model_path'],
                 data.get('gpu_devices', '0')
             )
+        except ValueError as e:
+            return jsonify({'error': str(e)}), 400
         except Exception as e:
             return jsonify({'error': get_message('model_loading_error', lang, error=str(e))}), 500
         

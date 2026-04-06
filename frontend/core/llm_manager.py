@@ -10,6 +10,8 @@ import logging
 from typing import Dict, Optional, Any
 from vllm import LLM
 
+from .gpu_utils import normalize_requested_gpu_devices
+
 logger = logging.getLogger(__name__)
 
 
@@ -28,6 +30,38 @@ class LLMManager:
         """Initialize the LLM manager with an empty instance cache."""
         self._instances: Dict[str, LLM] = {}
         logger.info("LLMManager initialized")
+
+    @staticmethod
+    def _resolve_prefix_caching(
+        enable_steer_vector: bool,
+        enable_prefix_caching: bool | None,
+    ) -> bool | None:
+        """Resolve steering-safe prefix caching behavior before LLM init."""
+        if enable_steer_vector:
+            if enable_prefix_caching is True:
+                raise ValueError(
+                    "Steer vectors are incompatible with prefix caching. "
+                    "Set --no-enable-prefix-caching or "
+                    "enable_prefix_caching=False when using steering."
+                )
+            return False
+        return enable_prefix_caching
+
+    @staticmethod
+    def _build_cache_key(
+        model_path: str,
+        normalized_gpu_devices: str,
+        enable_steer_vector: bool,
+        enable_chunked_prefill: bool,
+        enable_prefix_caching: bool | None,
+    ) -> str:
+        """Build a cache key that distinguishes incompatible runtime configs."""
+        return (
+            f"{model_path}_{normalized_gpu_devices}"
+            f"_steer={enable_steer_vector}"
+            f"_chunked_prefill={enable_chunked_prefill}"
+            f"_prefix_caching={enable_prefix_caching}"
+        )
     
     def get_or_create_llm(
         self,
@@ -36,7 +70,7 @@ class LLMManager:
         enable_steer_vector: bool = False,
         enforce_eager: bool = True,
         enable_chunked_prefill: bool = False,
-        enable_prefix_caching: bool = None,
+        enable_prefix_caching: bool | None = None,
         **kwargs
     ) -> LLM:
         """
@@ -48,13 +82,15 @@ class LLMManager:
             enable_steer_vector: Whether to enable steering vector support
             enforce_eager: Whether to enforce eager mode (recommended for steering)
             enable_chunked_prefill: Whether to enable chunked prefill
-            enable_prefix_caching: Whether to enable prefix caching (None = auto)
+            enable_prefix_caching: Whether to enable prefix caching
+                (None = auto, except steering forces False)
             **kwargs: Additional arguments to pass to LLM constructor
             
         Returns:
             LLM: The loaded or cached LLM instance
             
         Raises:
+            ValueError: If steering is requested with prefix caching enabled
             Exception: If model loading fails
             
         Examples:
@@ -64,8 +100,20 @@ class LLMManager:
             >>> llm2 = manager.get_or_create_llm("/path/to/model", gpu_devices="0")
             >>> assert llm is llm2
         """
+        normalized_gpu_devices = normalize_requested_gpu_devices(gpu_devices)
+        effective_enable_prefix_caching = self._resolve_prefix_caching(
+            enable_steer_vector=enable_steer_vector,
+            enable_prefix_caching=enable_prefix_caching,
+        )
+
         # Create a unique cache key
-        key = f"{model_path}_{gpu_devices}_{enable_steer_vector}"
+        key = self._build_cache_key(
+            model_path=model_path,
+            normalized_gpu_devices=normalized_gpu_devices,
+            enable_steer_vector=enable_steer_vector,
+            enable_chunked_prefill=enable_chunked_prefill,
+            enable_prefix_caching=effective_enable_prefix_caching,
+        )
         
         if key in self._instances:
             logger.info(f"Returning cached LLM instance: {key}")
@@ -73,11 +121,11 @@ class LLMManager:
         
         try:
             # Set GPU devices environment variable
-            os.environ["CUDA_VISIBLE_DEVICES"] = gpu_devices
-            logger.info(f"Set CUDA_VISIBLE_DEVICES={gpu_devices}")
+            os.environ["CUDA_VISIBLE_DEVICES"] = normalized_gpu_devices
+            logger.info(f"Set CUDA_VISIBLE_DEVICES={normalized_gpu_devices}")
             
             # Calculate tensor_parallel_size based on GPU count
-            gpu_count = len(gpu_devices.split(','))
+            gpu_count = len(normalized_gpu_devices.split(','))
             
             # Build LLM configuration
             llm_config = {
@@ -91,9 +139,9 @@ class LLMManager:
             if enable_steer_vector:
                 llm_config['enable_steer_vector'] = True
             
-            # Add enable_prefix_caching if explicitly specified
-            if enable_prefix_caching is not None:
-                llm_config['enable_prefix_caching'] = enable_prefix_caching
+            # Steering must always disable prefix caching to avoid incorrect KV reuse.
+            if effective_enable_prefix_caching is not None:
+                llm_config['enable_prefix_caching'] = effective_enable_prefix_caching
             
             # Merge with any additional kwargs
             llm_config.update(kwargs)

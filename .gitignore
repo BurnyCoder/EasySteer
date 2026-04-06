@@ -1,4 +1,6 @@
 __pycache__/
 .idea/
 /temp/
+.venv/
+.pytest_cache/
 easysteer.egg-info/

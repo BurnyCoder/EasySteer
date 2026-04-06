@@ -137,35 +137,93 @@ python3 /app/easysteer/docker/docker_test.py
 
 ### 快速示例
 
+在运行示例前，请先在命令行中选择 GPU：
+
+```bash
+CUDA_VISIBLE_DEVICES=0 uv run easysteer-steering.py
+```
+
 ```python
+import multiprocessing
+
+import torch
 from vllm import LLM, SamplingParams
 from vllm.steer_vectors.request import SteerVectorRequest
-import os
 
-# 设置你的GPU
-os.environ["CUDA_VISIBLE_DEVICES"] = "4"
 
-# 初始化 LLM 模型
-# enable_steer_vector=True: 启用向量干预（不设置则与普通 vLLM 一致）
-# enforce_eager=True: 确保干预时的可靠性与稳定性（强烈建议）
-# enable_chunked_prefill=False: 避免潜在的一些问题
-llm = LLM(model="Qwen/Qwen2.5-1.5B-Instruct", enable_steer_vector=True, enforce_eager=True, tensor_parallel_size=1, enable_chunked_prefill=False)
+def require_visible_cuda_device() -> None:
+    if not torch.cuda.is_available() or torch.cuda.device_count() == 0:
+        raise SystemExit(
+            "No CUDA GPUs are visible. Set CUDA_VISIBLE_DEVICES to a valid GPU "
+            "index before running this demo, for example: "
+            "CUDA_VISIBLE_DEVICES=0 uv run easysteer-steering.py"
+        )
 
-sampling_params = SamplingParams(
-    temperature=0.0,
-    max_tokens=128,
-)
-text = "<|im_start|>user\nAlice's dog has passed away. Please comfort her.<|im_end|>\n<|im_start|>assistant\n"
-target_layers = list(range(10,26))
 
-baseline_request = SteerVectorRequest("baseline", 1, steer_vector_local_path="vectors/happy_diffmean.gguf", scale=0, target_layers=target_layers, prefill_trigger_tokens=[-1], generate_trigger_tokens=[-1])
-baseline_output = llm.generate(text, steer_vector_request=baseline_request, sampling_params=sampling_params)
+def main() -> None:
+    require_visible_cuda_device()
 
-happy_request = SteerVectorRequest("happy", 2, steer_vector_local_path="vectors/happy_diffmean.gguf", scale=2.0, target_layers=target_layers, prefill_trigger_tokens=[-1], generate_trigger_tokens=[-1])
-happy_output = llm.generate(text, steer_vector_request=happy_request, sampling_params=sampling_params)
+    # 初始化 LLM 模型
+    # enable_steer_vector=True: 启用向量干预（不设置则与普通 vLLM 一致）
+    # enforce_eager=True: 确保干预时的可靠性与稳定性（强烈建议）
+    # enable_chunked_prefill=False: 避免潜在的一些问题
+    # enable_prefix_caching=False: 启用 steering 时必须关闭前缀缓存
+    llm = LLM(
+        model="Qwen/Qwen2.5-1.5B-Instruct",
+        enable_steer_vector=True,
+        enforce_eager=True,
+        tensor_parallel_size=1,
+        enable_chunked_prefill=False,
+        enable_prefix_caching=False,
+    )
 
-print(baseline_output[0].outputs[0].text)
-print(happy_output[0].outputs[0].text)
+    sampling_params = SamplingParams(
+        temperature=0.0,
+        max_tokens=128,
+    )
+    text = (
+        "<|im_start|>user\nAlice's dog has passed away. Please comfort her."
+        "<|im_end|>\n<|im_start|>assistant\n"
+    )
+    target_layers = list(range(10, 26))
+
+    baseline_request = SteerVectorRequest(
+        "baseline",
+        1,
+        steer_vector_local_path="vectors/happy_diffmean.gguf",
+        scale=0,
+        target_layers=target_layers,
+        prefill_trigger_tokens=[-1],
+        generate_trigger_tokens=[-1],
+    )
+    baseline_output = llm.generate(
+        text,
+        steer_vector_request=baseline_request,
+        sampling_params=sampling_params,
+    )
+
+    happy_request = SteerVectorRequest(
+        "happy",
+        2,
+        steer_vector_local_path="vectors/happy_diffmean.gguf",
+        scale=2.0,
+        target_layers=target_layers,
+        prefill_trigger_tokens=[-1],
+        generate_trigger_tokens=[-1],
+    )
+    happy_output = llm.generate(
+        text,
+        steer_vector_request=happy_request,
+        sampling_params=sampling_params,
+    )
+
+    print(baseline_output[0].outputs[0].text)
+    print(happy_output[0].outputs[0].text)
+
+
+if __name__ == "__main__":
+    multiprocessing.freeze_support()
+    main()
 
 # ======baseline======
 # I'm sorry to hear about the loss of your dog. Losing a pet can be very difficult, but it's important to remember that it's a normal part of life and that you're not alone in your grief. It's okay to feel sad, angry, or confused. Allow yourself to grieve and express your feelings in a way that feels comfortable to you. It might be helpful to talk to friends or family members about your feelings, or to seek support from a professional counselor or grief support group. Remember that healing takes time, and it's okay to take things one day at a time.

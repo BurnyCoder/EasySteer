@@ -17,6 +17,7 @@ dependencies = [
     "datasets",
     "matplotlib",
     "accelerate",
+    "vllm",
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -34,7 +35,10 @@ keywords = ["llm", "steering", "nlp", "machine learning", "deep learning"]
 Homepage = "https://github.com/ZJU-REAL/EasySteer"
 Repository = "https://github.com/ZJU-REAL/EasySteer"
 
+[tool.uv.sources]
+vllm = { path = "./vllm-steer", editable = true }
+
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["easysteer*"]
-exclude = [] 
+exclude = []
