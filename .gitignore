@@ -3,4 +3,5 @@ __pycache__/
 /temp/
 .venv/
 .pytest_cache/
+uv.lock
 easysteer.egg-info/
